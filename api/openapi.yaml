@@ -1654,6 +1654,97 @@ paths:
                   wid: { type: string, description: 'The write id (`_wid`) of the stored document; absent before its first write.' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /api/export/v1:
+    get:
+      tags: [data]
+      operationId: exportV1
+      summary: Read-only strength export for another service
+      description: |
+        Workouts, sets, body weight and exercise names for one profile, in a fixed shape that does
+        not follow the app's internal state. Meant for the owner's own services on the internal
+        network, not for browsers or the app.
+
+        Off (404) unless `OPENGYM_EXPORT_TOKEN` is set. Authenticated only by
+        `Authorization: Bearer <OPENGYM_EXPORT_TOKEN>`; a session cookie opens nothing. The
+        profile is `OPENGYM_EXPORT_UID`, or the only profile when there is just one.
+
+        Answers 404 to any request carrying `X-Forwarded-For` or `X-Real-IP`, which the bundled
+        nginx always sets, so the route is never served through the public hostname.
+
+        `?since_rev=<n>` answers 304 when `n` equals the current `rev`. Additive changes stay in
+        v1; anything else is served as v2 beside it.
+      parameters:
+        - { name: since_rev, in: query, required: false, schema: { type: integer } }
+      responses:
+        '200':
+          description: The export.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, rev, unit, workouts, bodyweight, exercises, deleted]
+                properties:
+                  version: { type: integer, const: 1 }
+                  rev: { type: integer, description: The profile's document revision. }
+                  unit: { type: string, enum: [kg, lb] }
+                  workouts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        date: { type: string, format: date }
+                        start: { type: [number, 'null'], description: 'ms since epoch; null for imported workouts.' }
+                        end: { type: [number, 'null'] }
+                        name: { type: [string, 'null'] }
+                        routine_id: { type: [string, 'null'] }
+                        body_weight: { type: [number, 'null'] }
+                        edited_at: { type: [number, 'null'] }
+                        entries:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              exercise_id: { type: string }
+                              sets:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    weight: { type: [number, 'null'] }
+                                    reps: { type: [number, 'null'] }
+                                    rpe: { type: [number, 'null'] }
+                                    rir: { type: [number, 'null'] }
+                                    done: { type: boolean }
+                  bodyweight:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date: { type: string, format: date }
+                        weight: { type: [number, 'null'] }
+                  exercises:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: [string, 'null'] }
+                  deleted:
+                    type: object
+                    properties:
+                      workouts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            at: { type: number }
+        '304': { description: Nothing changed since `since_rev`. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Export is off, or the request came through the web proxy. }
+        '503': { description: More than one profile and no `OPENGYM_EXPORT_UID`, or the state file is unreadable. }
+
   /api/nudge-check:
     get:
       tags: [data]
