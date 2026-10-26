@@ -34,6 +34,7 @@ import { createDeviceLink, findDeviceLink, burnDeviceLink, dropDeviceLinks } fro
 import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE } from './media.js';
 import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
+import { buildExport, tokenMatches } from './export.js';
 import { atomicWrite as durableWrite } from './durable.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
 
@@ -2394,6 +2395,24 @@ const routes = {
   // Cheap means the stat cache the reminder tick already uses: parsing a megabytes-long document
   // to read one number off it cost 31 ms per poll on a 2.4 MB state, all of it on the event loop.
   // Every write goes through atomicWrite's rename, so the cache can never hand out a stale rev.
+  // Read-only feed for the owner's Fitness site (api/export.js). Off unless OPENGYM_EXPORT_TOKEN is
+  // set, and never served to anything that came through the web container: nginx always sets
+  // X-Forwarded-For and X-Real-IP, so a request carrying either arrived from outside and gets the
+  // same 404 as a route that does not exist. A caller on the internal network sends neither. Only
+  // the Authorization header counts; a session cookie opens nothing here.
+  'GET /api/export/v1': async (req, res) => {
+    const token = process.env.OPENGYM_EXPORT_TOKEN;
+    if (!token || req.headers['x-forwarded-for'] || req.headers['x-real-ip']) return json(res, 404, { error: 'not found' });
+    if (!tokenMatches(req.headers.authorization, token)) return json(res, 401, { error: 'not signed in' });
+    const uid = (process.env.OPENGYM_EXPORT_UID || '').trim() || (db.users.length === 1 ? db.users[0].id : '');
+    if (!uid) return json(res, 503, { error: 'set OPENGYM_EXPORT_UID: this instance has more than one profile' });
+    const S = readStateStrict(uid);
+    if (S === UNREADABLE) return json(res, 503, { error: 'state unreadable' });
+    const out = buildExport(S || {});
+    if (+new URL(req.url, 'http://x').searchParams.get('since_rev') === out.rev && out.rev) { res.writeHead(304, { 'Cache-Control': 'no-store' }); return res.end(); }
+    json(res, 200, out);
+  },
+
   'GET /api/data/rev': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
