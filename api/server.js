@@ -2389,12 +2389,6 @@ const routes = {
     notePull(user);
     json(res, 200, { state: forClient(state), rev: state?._rev || 0 });
   },
-  // Just the revision: the client asks this every half minute while it is open and on every
-  // return to the foreground, and fetches the document only when the number moved — a signed-in
-  // device is meant to show what the server has, and this is what keeps that cheap.
-  // Cheap means the stat cache the reminder tick already uses: parsing a megabytes-long document
-  // to read one number off it cost 31 ms per poll on a 2.4 MB state, all of it on the event loop.
-  // Every write goes through atomicWrite's rename, so the cache can never hand out a stale rev.
   // Read-only feed for the owner's Fitness site (api/export.js). Off unless OPENGYM_EXPORT_TOKEN is
   // set, and never served to anything that came through the web container: nginx always sets
   // X-Forwarded-For and X-Real-IP, so a request carrying either arrived from outside and gets the
@@ -2413,6 +2407,12 @@ const routes = {
     json(res, 200, out);
   },
 
+  // Just the revision: the client asks this every half minute while it is open and on every
+  // return to the foreground, and fetches the document only when the number moved — a signed-in
+  // device is meant to show what the server has, and this is what keeps that cheap.
+  // Cheap means the stat cache the reminder tick already uses: parsing a megabytes-long document
+  // to read one number off it cost 31 ms per poll on a 2.4 MB state, all of it on the event loop.
+  // Every write goes through atomicWrite's rename, so the cache can never hand out a stale rev.
   'GET /api/data/rev': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
